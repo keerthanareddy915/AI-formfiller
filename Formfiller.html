@@ -1,0 +1,944 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Form Filler (Translated & Editable)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- PDF.js Libraries for client-side PDF rendering. -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs" type="module"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs" type="module"></script>
+    <!-- Libraries for PDF Generation from HTML -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <!-- NEW: Font Awesome for Microphone Icon -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+
+
+    <script>
+        // Set worker source for PDF.js compatibility
+        window.pdfjsLib = {
+            GlobalWorkerOptions: {
+                workerSrc: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.worker.min.mjs"
+            }
+        };
+        // Check for Web Speech compatibility
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    </script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #1f2937; /* Dark Gray Background */
+        }
+        .card { 
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.4), 0 4px 6px rgba(0, 0, 0, 0.2); 
+            transition: transform 0.3s ease;
+        }
+        .file-dropzone {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            border: 2px dashed #4b5563; /* Gray-600 */
+            background-color: #374151; /* Gray-700 */
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .file-dropzone:hover {
+            border-color: #38bdf8; /* Sky-400 */
+            background-color: #4b5563; /* Gray-600 */
+        }
+        .loader {
+            border: 4px solid rgba(243, 244, 246, 0.2);
+            border-top: 4px solid #38bdf8;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 0.8s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .animated-button {
+            transition: all 0.2s ease-in-out;
+            transform-origin: center;
+        }
+        .animated-button:hover {
+            transform: scale(1.03) translateY(-1px);
+            box-shadow: 0 6px 15px rgba(56, 189, 248, 0.4);
+        }
+        .animated-button:active {
+            transform: scale(0.98);
+            box-shadow: 0 2px 5px rgba(56, 189, 248, 0.6);
+        }
+        /* New Styles for Voice Input */
+        .input-group {
+            display: flex;
+            align-items: stretch;
+        }
+        .mic-button {
+            color: #38bdf8;
+            transition: color 0.1s;
+        }
+        .mic-button:hover {
+            color: #1d4ed8;
+        }
+        .mic-active {
+            color: #ef4444 !important; /* Red */
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.1); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        /* Styling adjustments for PDF capture (Used only for visual consistency, not PDF output) */
+        .pdf-capture-container {
+            background-color: white !important;
+            padding: 40px !important; 
+            border-radius: 8px;
+        }
+        .pdf-capture-container label {
+            color: #111111 !important;
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 5px !important; 
+            display: block;
+        }
+        
+        /* Ensure all inputs and textareas have consistent box sizing */
+        .pdf-capture-container input,
+        .pdf-capture-container textarea { 
+            box-sizing: border-box !important; 
+            border: 1px solid #ccc !important; 
+            background: #f7f7f7 !important;
+            color: #000000 !important;
+            font-size: 16px !important;
+            font-weight: 500;
+            box-shadow: none !important;
+            height: auto !important; 
+            line-height: 1.5 !important;
+            resize: none; 
+            width: 100% !important; 
+        }
+        
+        .pdf-capture-container input {
+            padding: 10px 8px !important; 
+            min-height: 45px !important; 
+            height: 45px !important; 
+        }
+
+        .pdf-capture-container textarea {
+            padding: 10px 8px !important;
+            min-height: 80px !important; 
+            height: 80px !important; 
+        }
+
+        /* Hide ALL buttons inside the form when generating the PDF (including mic button) */
+        .pdf-capture-container button {
+            display: none !important;
+        }
+    </style>
+</head>
+<body class="p-4 md:p-10 min-h-screen flex items-center justify-center">
+
+    <div class="max-w-7xl w-full">
+        <h1 class="4xl font-extrabold text-white text-center mb-10 tracking-wider">
+            AI Form Filler: <span class="text-sky-400">Translated & Editable</span>
+        </h1>
+        
+        <!-- Input Panels --><div class="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
+            
+            <!-- Source Document Upload --><div class="lg:col-span-1 bg-gray-700 p-6 rounded-2xl card border border-sky-600/20">
+                <h2 class="text-xl font-semibold text-gray-100 mb-4 border-b border-gray-600 pb-2">
+                    Source (File 1): ID Document
+                </h2>
+                <p class="text-sm text-gray-300 mb-4">
+                    Upload the verified identity document. Accepts **Image or PDF**.
+                </p>
+
+                <!-- NEW: URL Input Section --><div class="mb-4">
+                    <label for="sourceUrl" class="text-sm font-medium text-gray-300 mb-2 block">... or load from Link (URL):</label>
+                    <div class="flex">
+                        <input type="url" id="sourceUrl" placeholder="https://example.com/id.png" class="flex-grow px-3 py-2 text-sm text-white bg-gray-800 border border-gray-600 rounded-l-md focus:outline-none focus:border-sky-400">
+                        <button onclick="loadFromUrl('source')" class="bg-sky-600 hover:bg-sky-500 text-white text-sm px-4 rounded-r-md">Load</button>
+                    </div>
+                    <p class="text-xs text-red-400 mt-1 hidden" id="sourceUrlError"></p>
+                </div>
+                <!-- END NEW: URL Input Section -->
+                <p class="text-sm text-gray-300 my-4 text-center border-t border-gray-600 pt-4">... or Upload File:</p>
+
+                <div id="sourceDropzone" class="file-dropzone h-48 rounded-xl p-3 relative overflow-hidden" onclick="document.getElementById('sourceFileInput').click()">
+                    <input type="file" id="sourceFileInput" accept="image/*, .pdf" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="previewImage(event, 'source')">
+                    <img id="sourcePreview" class="max-h-full max-w-full object-contain rounded-lg hidden" src="#" alt="Source Preview">
+                    <div id="sourcePlaceholder" class="text-center text-gray-400 space-y-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 mx-auto text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4m-4-2h4m-4 0l-4-4m4 4l4-4M16 10l-4-4" /></svg>
+                        <p class="font-semibold text-gray-200 text-sm">Upload Source ID</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Target Form Upload --><div class="lg:col-span-1 bg-gray-700 p-6 rounded-2xl card border border-sky-600/20">
+                <h2 class="text-xl font-semibold text-gray-100 mb-4 border-b border-gray-600 pb-2">
+                    Target (File 2): Blank Form Template
+                </h2>
+                <p class="text-sm text-gray-300 mb-4">
+                    Upload the blank form template (used to identify required field names). Accepts **Image or PDF**.
+                </p>
+
+                <!-- NEW: URL Input Section --><div class="mb-4">
+                    <label for="targetUrl" class="text-sm font-medium text-gray-300 mb-2 block">... or load from Link (URL):</label>
+                    <div class="flex">
+                        <input type="url" id="targetUrl" placeholder="https://example.com/form.pdf" class="flex-grow px-3 py-2 text-sm text-white bg-gray-800 border border-gray-600 rounded-l-md focus:outline-none focus:border-sky-400">
+                        <button onclick="loadFromUrl('target')" class="bg-sky-600 hover:bg-sky-500 text-white text-sm px-4 rounded-r-md">Load</button>
+                    </div>
+                    <p class="text-xs text-red-400 mt-1 hidden" id="targetUrlError"></p>
+                </div>
+                <!-- END NEW: URL Input Section -->
+                <p class="text-sm text-gray-300 my-4 text-center border-t border-gray-600 pt-4">... or Upload File:</p>
+
+                <div id="targetDropzone" class="file-dropzone h-48 rounded-xl p-3 relative overflow-hidden" onclick="document.getElementById('targetFileInput').click()">
+                    <input type="file" id="targetFileInput" accept="image/*, .pdf" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer" onchange="previewImage(event, 'target')">
+                    <img id="targetPreview" class="max-h-full max-w-full object-contain rounded-lg hidden" src="#" alt="Target Preview">
+                    <div id="targetPlaceholder" class="text-center text-gray-400 space-y-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 mx-auto text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m-6-8h6m-6-4h6a2 2 0 012 2v12a2 2 0 01-2 2H9a2 2 0 01-2-2V6a2 2 0 012-2z" /></svg>
+                        <p class="font-semibold text-gray-200 text-sm">Upload Blank Form</p>
+                    </div>
+                </div>
+            </div>
+
+             <!-- Action and Status --><div class="lg:col-span-1 flex flex-col justify-between bg-gray-700 p-6 rounded-2xl card border border-sky-600/20">
+                <h2 class="text-xl font-semibold text-gray-100 mb-4 border-b border-gray-600 pb-2">
+                    Action & Status
+                </h2>
+                <!-- NEW: Language Selector --><div class="mb-6">
+                    <label for="targetLanguage" class="text-sm font-medium text-gray-300 mb-2 block">Translate Output To:</label>
+                    <select id="targetLanguage" class="w-full px-3 py-2 text-sm text-white bg-gray-800 border border-gray-600 rounded-md focus:outline-none focus:border-sky-400">
+                        <option value="English">English</option>
+                        <option value="Spanish">Spanish</option>
+                        <option value="French">French</option>
+                        <option value="Hindi">Hindi (Hindi Script)</option>
+                        <option value="Telugu">Telugu</option>
+                        <option value="Marathi">Marathi</option>
+                        <option value="Kannada">Kannada</option>
+                        <option value="Tamil">Tamil</option>
+                        <option value="Malayalam">Malayalam</option>
+                        <option value="Mandarin Chinese">Mandarin Chinese</option>
+                    </select>
+                </div>
+                <!-- END NEW: Language Selector -->
+                <div class="mt-auto">
+                    <button onclick="fillForm()" id="fillButton" class="animated-button w-full bg-sky-600 hover:bg-sky-500 text-white font-bold py-3 px-8 rounded-full shadow-lg shadow-sky-600/30 transition duration-300 flex items-center justify-center">
+                        <span id="buttonText">Map Data & Fill Form</span>
+                        <div id="loader" class="loader ml-3 hidden"></div>
+                    </button>
+                    <div id="statusMessage" class="text-sm font-medium text-center mt-4 text-gray-300 min-h-[20px]"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Output Panel (Full Width) --><div class="w-full bg-gray-700 p-8 rounded-2xl card border border-sky-600/20">
+            <h2 class="text-xl font-semibold text-gray-100 mb-6 border-b border-gray-600 pb-3">
+                Step 3: Editable Data Form
+            </h2>
+            
+            <div id="pdfPrintArea">
+                 <!-- The form content will be injected here. It needs its own container for clean PDF capture. -->
+                <div id="formOutputContainer" class="grid grid-cols-1 md:grid-cols-2 gap-6 p-4 bg-gray-800 rounded-xl">
+                    <!-- Editable form fields will be injected here -->
+                </div>
+            </div>
+           
+            <div id="outputMessage" class="text-gray-400 text-center py-4 mt-4">Upload files or load from a URL and click the button to generate the editable form.</div>
+             
+            <!-- NEW: PDF Button -->
+            <button onclick="generatePdf()" id="pdfButton" class="animated-button w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 px-8 rounded-full shadow-lg shadow-green-600/30 transition duration-300 flex items-center justify-center mt-6 hidden">
+                <i class="fas fa-file-pdf mr-2"></i> Generate PDF of Filled Form
+            </button>
+        </div>
+    </div>
+
+    <script type="module">
+        import { getDocument } from 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.0.379/pdf.min.mjs';
+
+        // --- Configuration & Initialization ---
+        const model = "gemini-2.5-flash-preview-09-2025";
+        const apiKey = "AIzaSyA-5kEZao_-mEBULUpcX4ViZW_cqkF1Dpg"; 
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`; 
+        
+        const SEP_TOKEN = "###SEP###";
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+        // --- GLOBAL STATE ---
+        let sourceImageBase64 = null;
+        let sourceImageMimeType = null;
+        let targetImageBase64 = null;
+        let targetImageMimeType = null;
+        let targetImageURL = null; // Store for PDF drawing
+        let mappedFormData = [];   // Stores AI data (including coordinates) and current values
+
+        // --- NEW responseSchema: Includes inferred coordinates ---
+        const responseSchema = {
+            type: "ARRAY",
+            items: {
+                type: "OBJECT",
+                properties: {
+                    "fieldName": { "type": "STRING", "description": "The required field label/prompt from the blank form (File 2), formatted as: Original " + SEP_TOKEN + " Translated." },
+                    "extractedValue": { "type": "STRING", "description": "The corresponding value from the ID (File 1), formatted as: Original " + SEP_TOKEN + " Translated." },
+                    "x": { "type": "NUMBER", "description": "The inferred X-coordinate (from the left edge) on the blank form image where 'extractedValue' should be placed. Relative to image width (0-1)." },
+                    "y": { "type": "NUMBER", "description": "The inferred Y-coordinate (from the top edge) on the blank form image where 'extractedValue' should be placed. Relative to image height (0-1)." },
+                    "width": { "type": "NUMBER", "description": "The inferred width for the text field on the blank form image. Relative to image width (0-1)." },
+                    "height": { "type": "NUMBER", "description": "The inferred height for the text field on the blank form image. Relative to image height (0-1)." }
+                },
+                required: ["fieldName", "extractedValue", "x", "y", "width", "height"]
+            }
+        };
+
+        // NEW: Dynamic System Prompt Template (MAXIMUM REINFORCEMENT with coordinates)
+        const baseSystemPrompt = (targetLang) => `You are a sophisticated AI Form Mapper and Multi-lingual Translator. Your core directive is to provide data **ONLY** in the requested target language.
+        1. OCR, extract all identity information from the first file (Source Document).
+        2. OCR, identify all field labels, AND **INFER THE RELATIVE (0-1) COORDINATES (x, y, width, height) of the input box** for each field from the second file (Target Form).
+        3. Map the extracted values to the field labels.
+        4. For both 'fieldName' and 'extractedValue', translate the text into ${targetLang}.
+        5. The final output **MUST** strictly follow the format: "Original Text ${SEP_TOKEN} Translated Text in ${targetLang}".
+        6. **ABSOLUTELY CRITICAL:** All coordinates (x, y, width, height) must be a number between 0 and 1, representing the proportional position on the form image.
+        7. Return the mapped data STRICTLY as a JSON array matching the provided schema. If a value cannot be mapped, set 'extractedValue' to 'N/A ${SEP_TOKEN} N/A' and infer plausible coordinates for an empty field.`;
+
+        // UI Element References
+        const fillButton = document.getElementById('fillButton');
+        const loader = document.getElementById('loader');
+        const buttonText = document.getElementById('buttonText');
+        const statusMessage = document.getElementById('statusMessage');
+        const formOutputContainer = document.getElementById('formOutputContainer');
+        const outputMessage = document.getElementById('outputMessage');
+        const pdfButton = document.getElementById('pdfButton');
+        
+        // Helper function to extract the original text from the SEP_TOKEN-separated string
+        const getOriginalText = (text) => text.split(SEP_TOKEN)[0].trim();
+        // Helper function to extract the translated text
+        const getTranslatedText = (text) => text.split(SEP_TOKEN).length > 1 ? text.split(SEP_TOKEN).slice(1).join(SEP_TOKEN).trim() : '';
+
+        
+        /**
+         * Converts the first page of a PDF file into a Base64 PNG image.
+         */
+        async function handlePdfUpload(file, type) {
+            const previewElement = document.getElementById(`${type}Preview`);
+            const placeholderElement = document.getElementById(`${type}Placeholder`);
+
+            setStatus(`[${type.toUpperCase()}] Rendering PDF...`, false);
+            placeholderElement.innerHTML = `<div class="loader"></div><p class="text-sm mt-2 text-sky-400">Rendering PDF...</p>`;
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const pdf = await getDocument({ data: arrayBuffer }).promise;
+                const page = await pdf.getPage(1); 
+                const viewport = page.getViewport({ scale: 2.0 }); 
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                canvas.height = viewport.height;
+                canvas.width = viewport.width;
+
+                await page.render({ canvasContext: ctx, viewport: viewport }).promise;
+
+                const dataUrl = canvas.toDataURL('image/png');
+                const base64Data = dataUrl.split(',')[1];
+                
+                if (type === 'source') {
+                    sourceImageBase64 = base64Data;
+                    sourceImageMimeType = 'image/png';
+                } else {
+                    targetImageBase64 = base64Data;
+                    targetImageMimeType = 'image/png';
+                    targetImageURL = dataUrl;
+                }
+
+                previewElement.src = dataUrl;
+                previewElement.classList.remove('hidden');
+                placeholderElement.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 mx-auto text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4m-4-2h4m-4 0l-4-4m4 4l4-4M16 10l-4-4" /></svg><p class="font-semibold text-gray-200 text-sm">PDF Rendered as Image</p>`;
+                
+                setStatus(`[${type.toUpperCase()}] PDF converted to image.`, false);
+
+            } catch (error) {
+                console.error("PDF Rendering Error:", error);
+                setStatus(`[${type.toUpperCase()}] Failed to render PDF.`, true);
+                if (type === 'source') { sourceImageBase64 = null; } else { targetImageBase64 = null; targetImageURL = null; }
+                placeholderElement.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 mx-auto text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg><p class="font-semibold text-red-400 text-sm">PDF Error.</p>`;
+            }
+        }
+        
+        /**
+         * Main file preview function, now handles routing for PDF or Image.
+         * Note: This function is primarily for file upload from the local machine.
+         */
+        function previewImage(event, type) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const previewElement = document.getElementById(`${type}Preview`);
+            const placeholderElement = document.getElementById(`${type}Placeholder`);
+            const urlInput = document.getElementById(`${type}Url`);
+            const urlError = document.getElementById(`${type}UrlError`);
+            
+            // Clear URL input and error on file upload
+            urlInput.value = '';
+            urlError.classList.add('hidden');
+
+            // Reset UI for new file upload
+            previewElement.classList.add('hidden');
+            placeholderElement.classList.remove('hidden');
+
+            if (file.type === 'application/pdf') {
+                handlePdfUpload(file, type);
+                return;
+            }
+
+            // --- IMAGE PROCESSING ---
+            if (type === 'source') {
+                sourceImageMimeType = file.type;
+            } else {
+                targetImageMimeType = file.type;
+            }
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const url = e.target.result;
+                
+                previewElement.src = url;
+                previewElement.classList.remove('hidden');
+                
+                const base64Data = url.split(',')[1];
+                if (type === 'source') {
+                    sourceImageBase64 = base64Data;
+                } else {
+                    targetImageBase64 = base64Data;
+                    targetImageURL = url; // Store image URL for canvas drawing
+                }
+            };
+            reader.readAsDataURL(file);
+            setStatus(`Image loaded into ${type.toUpperCase()} slot.`);
+        }
+
+        /**
+         * Loads a file from a remote URL.
+         */
+        async function loadFromUrl(type) {
+            const urlInput = document.getElementById(`${type}Url`);
+            const urlError = document.getElementById(`${type}UrlError`);
+            const previewElement = document.getElementById(`${type}Preview`);
+            const placeholderElement = document.getElementById(`${type}Placeholder`);
+            const url = urlInput.value.trim();
+
+            urlError.classList.add('hidden');
+            
+            if (!url) {
+                urlError.textContent = "URL is required.";
+                urlError.classList.remove('hidden');
+                return;
+            }
+
+            // Show loading state
+            setStatus(`[${type.toUpperCase()}] Fetching from URL...`);
+            placeholderElement.innerHTML = `<div class="loader"></div><p class="text-sm mt-2 text-sky-400">Fetching...</p>`;
+            placeholderElement.classList.remove('hidden');
+            previewElement.classList.add('hidden');
+
+            try {
+                const response = await fetch(url);
+                if (!response.ok) {
+                    throw new Error(`HTTP Error: ${response.status} ${response.statusText}. Could not access the link.`);
+                }
+
+                const mimeType = response.headers.get("Content-Type") || 'application/octet-stream';
+                
+                // Read the blob and convert to Data URL
+                const blob = await response.blob();
+                const reader = new FileReader();
+
+                await new Promise((resolve, reject) => {
+                    reader.onload = resolve;
+                    reader.onerror = reject;
+                    reader.readAsDataURL(blob);
+                });
+                
+                const dataUrl = reader.result;
+                const base64Data = dataUrl.split(',')[1];
+
+                // Check if PDF or Image and update state
+                if (mimeType.includes('pdf')) {
+                    // Recreate a dummy File object for PDF handling
+                    const file = new File([blob], url.split('/').pop() || 'file.pdf', { type: mimeType });
+                    await handlePdfUpload(file, type);
+                } else if (mimeType.includes('image')) {
+                    
+                    if (type === 'source') {
+                        sourceImageBase64 = base64Data;
+                        sourceImageMimeType = mimeType;
+                    } else {
+                        targetImageBase64 = base64Data;
+                        targetImageMimeType = mimeType;
+                        targetImageURL = dataUrl;
+                    }
+
+                    previewElement.src = dataUrl;
+                    previewElement.classList.remove('hidden');
+                    placeholderElement.classList.add('hidden');
+                    setStatus(`[${type.toUpperCase()}] Image loaded from URL.`, false);
+                } else {
+                    throw new Error(`Unsupported file type: ${mimeType}. Only images and PDFs are supported.`);
+                }
+
+            } catch (error) {
+                console.error("URL Load Error:", error);
+                
+                // Specific error message for CORS/Network issues
+                const errorMessage = error.message.includes("Failed to fetch") || error.message.includes("HTTP Error")
+                    ? "Could not load the file. Ensure the URL is public and CORS is allowed."
+                    : error.message;
+
+                urlError.textContent = errorMessage;
+                urlError.classList.remove('hidden');
+                setStatus(`[${type.toUpperCase()}] Load Failed.`, true);
+                
+                // Restore placeholder on failure
+                placeholderElement.innerHTML = type === 'source' 
+                    ? `<svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 mx-auto text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4m-4-2h4m-4 0l-4-4m4 4l4-4M16 10l-4-4" /></svg><p class="font-semibold text-red-400 text-sm">Load Failed</p>`
+                    : `<svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 mx-auto text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m-6-8h6m-6-4h6a2 2 0 012 2v12a2 2 0 01-2 2H9a2 2 0 01-2-2V6a2 2 0 012-2z" /></svg><p class="font-semibold text-red-400 text-sm">Load Failed</p>`;
+            }
+        }
+        window.loadFromUrl = loadFromUrl; // Expose globally
+
+
+        /**
+         * Renders the dynamically generated and editable HTML form.
+         * @param {Array<Object>} data - The extracted and mapped JSON data (including coordinates).
+         */
+        function renderEditableForm(data) {
+            formOutputContainer.innerHTML = '';
+            outputMessage.textContent = 'Form generated. Correct any missing data and click "Generate PDF".';
+            pdfButton.classList.remove('hidden'); 
+            mappedFormData = data; // Store data globally
+
+            data.forEach((item, index) => {
+                // Parse field name and value
+                const rawLabel = item.fieldName.replace(/_/g, ' ');
+                const originalLabel = getOriginalText(rawLabel);
+                const translatedLabel = getTranslatedText(rawLabel);
+                const rawValue = item.extractedValue;
+                const originalValue = getOriginalText(rawValue);
+                const translatedValue = getTranslatedText(rawValue);
+                
+                // Determine label and value state
+                const labelPlaceholder = '--- FIELD NAME ---'; 
+                const labelText = translatedLabel || labelPlaceholder;
+                const isMissing = originalValue.toUpperCase() === 'N/A';
+                const translationSuccessful = !!translatedValue;
+                
+                let displayValue = '';
+                let placeholderText = '';
+
+                if (isMissing) {
+                    placeholderText = 'Missing data: Please enter the value.';
+                } else if (translationSuccessful) {
+                    displayValue = translatedValue;
+                } else {
+                    placeholderText = 'Translation failed: Please enter the value.';
+                }
+                
+                const inputClass = isMissing || !translationSuccessful 
+                    ? 'border-yellow-500/50 focus:border-yellow-400' 
+                    : 'border-gray-600 focus:border-sky-400';
+
+                const fieldDiv = document.createElement('div');
+                fieldDiv.className = 'flex flex-col space-y-1';
+                
+                // Determine if a field should be a TEXTAREA (for multi-line addresses)
+                const isLongText = ['address', 'street', 'area', 'क्षेत्र', 'पता', 'सड़क', 'मकान'].some(keyword => originalLabel.toLowerCase().includes(keyword));
+                
+                let inputElementHTML;
+
+                if (isLongText) {
+                     // Use TEXTAREA for long text fields (e.g., Address)
+                     inputElementHTML = `
+                         <textarea
+                            id="field_${index}"
+                            placeholder="${placeholderText}"
+                            rows="2"
+                            class="w-full px-3 py-2 text-sm text-white bg-gray-800 border rounded-l-md focus:outline-none ${inputClass}"
+                            data-field-name="${item.fieldName}"
+                         >${displayValue}</textarea>
+                         <button 
+                            id="mic_btn_${index}"
+                            onclick="startVoiceInput('field_${index}', this)" 
+                            class="bg-gray-800 border border-gray-600 border-l-0 text-white p-2 rounded-r-md hover:bg-gray-700 transition"
+                            title="Speak to fill this field"
+                            ${!SpeechRecognition ? 'disabled' : ''}
+                        >
+                            <i class="fas fa-microphone mic-button"></i>
+                        </button>
+                     `;
+                } else {
+                    // Use standard INPUT for single-line fields
+                    inputElementHTML = `
+                        <input
+                            type="text"
+                            id="field_${index}"
+                            value="${displayValue}"
+                            placeholder="${placeholderText}"
+                            class="w-full px-3 py-2 text-sm text-white bg-gray-800 border rounded-l-md focus:outline-none ${inputClass}"
+                            data-field-name="${item.fieldName}"
+                        />
+                         <button 
+                            id="mic_btn_${index}"
+                            onclick="startVoiceInput('field_${index}', this)" 
+                            class="bg-gray-800 border border-gray-600 border-l-0 text-white p-2 rounded-r-md hover:bg-gray-700 transition"
+                            title="Speak to fill this field"
+                            ${!SpeechRecognition ? 'disabled' : ''}
+                        >
+                            <i class="fas fa-microphone mic-button"></i>
+                        </button>
+                    `;
+                }
+
+                fieldDiv.innerHTML = `
+                    <label for="field_${index}" class="text-sm font-medium text-gray-300" title="Original Field Name: ${originalLabel}">
+                        <span class="text-sky-400">${labelText}</span>
+                    </label>
+                    <div class="input-group">
+                        ${inputElementHTML}
+                    </div>
+                `;
+                formOutputContainer.appendChild(fieldDiv);
+            });
+        }
+
+        // --- VOICE COMMAND LOGIC ---
+
+        function getLanguageCode(languageName) {
+            switch (languageName) {
+                case 'Spanish': return 'es-ES';
+                case 'French': return 'fr-FR';
+                case 'Hindi': return 'hi-IN';
+                case 'Telugu': return 'te-IN';
+                case 'Marathi': return 'mr-IN';
+                case 'Kannada': return 'kn-IN';
+                case 'Tamil': return 'ta-IN';
+                case 'Malayalam': return 'ml-IN';
+                case 'Mandarin Chinese': return 'zh-CN';
+                case 'English':
+                default: return 'en-US';
+            }
+        }
+        
+        function startVoiceInput(inputId, micButton) {
+            if (!SpeechRecognition) {
+                setStatus("Voice command is not supported in this browser.", true);
+                return;
+            }
+
+            const inputField = document.getElementById(inputId);
+            const recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            
+            const targetLangCode = getLanguageCode(document.getElementById('targetLanguage').value);
+            recognition.lang = targetLangCode; 
+            
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+
+            micButton.classList.add('mic-active');
+            setStatus("Listening... Say the value for the field.", false);
+
+            recognition.onresult = function(event) {
+                micButton.classList.remove('mic-active');
+                const speechResult = event.results[0][0].transcript;
+                inputField.value = speechResult;
+                setStatus(`Voice input captured: "${speechResult}"`, false);
+            };
+
+            recognition.onerror = function(event) {
+                micButton.classList.remove('mic-active');
+                if (event.error === 'not-allowed') {
+                    setStatus("Microphone permission denied. Check browser settings.", true);
+                } else if (event.error === 'no-speech') {
+                    setStatus("No speech detected. Please try speaking louder or clearer.", true);
+                } else {
+                    setStatus(`Voice error: ${event.error}`, true);
+                }
+            };
+
+            recognition.onend = function() {
+                micButton.classList.remove('mic-active');
+            };
+
+            recognition.start();
+        }
+        window.startVoiceInput = startVoiceInput; // Expose globally
+
+        // --- END VOICE COMMAND LOGIC ---
+
+        
+        /**
+         * Generates a PDF by drawing the edited data onto the original form image.
+         */
+        async function generatePdf() {
+            if (mappedFormData.length === 0 || !targetImageURL) {
+                setStatus("Please map the data first. Missing form data or original image.", true);
+                return;
+            }
+
+            setStatus("Generating PDF in original form layout...", false);
+
+            // 1. Load the original blank form image
+            const formImage = new Image();
+            formImage.src = targetImageURL;
+            formImage.crossOrigin = "anonymous"; 
+
+            await new Promise((resolve, reject) => {
+                formImage.onload = resolve;
+                formImage.onerror = reject;
+            });
+
+            // 2. Create a canvas element
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+
+            // Set canvas dimensions to match the image
+            canvas.width = formImage.width;
+            canvas.height = formImage.height;
+
+            // Draw the original blank form image onto the canvas
+            ctx.drawImage(formImage, 0, 0);
+
+            // 3. Set initial drawing styles
+            ctx.fillStyle = '#000000'; // Black text
+            ctx.textAlign = 'left'; 
+            
+            // 4. Iterate through data and draw the CURRENT values from the HTML form
+            mappedFormData.forEach((item, index) => {
+                const inputElement = document.getElementById(`field_${index}`);
+                if (!inputElement) return;
+                
+                // Get the current, edited value from the HTML field
+                let value = inputElement.value;
+
+                if (!value || value.toUpperCase() === 'N/A') return;
+
+                // Calculate pixel coordinates from relative (0-1) coordinates
+                const xPx = item.x * canvas.width;
+                const yPx = item.y * canvas.height;
+                const widthPx = item.width * canvas.width;
+                const heightPx = item.height * canvas.height;
+                
+                // Add a small internal padding margin (in pixels) for aesthetics
+                const internalPadding = 2; // Reduced padding for tighter fit
+                const effectiveWidth = widthPx - (2 * internalPadding);
+                const startXPx = xPx + internalPadding;
+                
+                // Base font size used for calculation
+                let baseFontSize = Math.min(heightPx * 0.5, 24); 
+                const lineHeight = baseFontSize * 1.2;
+
+                // Set reliable font for multilingual support
+                ctx.font = `bold ${baseFontSize}px Arial`; 
+
+                // Split value by existing line breaks from the text area
+                const lines = value.split('\n');
+
+                // Check if the content is likely multi-line or too long for a single-line scaling
+                if (lines.length > 1 || lines[0].length > 40) {
+                    // --- MULTI-LINE (Address, Long Text) ---
+                    
+                    // 1. Calculate total height of the text block needed
+                    const totalTextHeight = lines.length * lineHeight;
+                    
+                    // 2. Calculate the starting Y coordinate to center the block vertically in the field box
+                    // Y center of box - half the total text height + baseline correction
+                    // CRITICAL FIX: Use 0.20 factor for a slightly lower baseline, giving top clearance.
+                    let yOffset = yPx + (heightPx / 2) - (totalTextHeight / 2) + (baseFontSize * 0.20); 
+                    
+                    ctx.textAlign = 'left';
+
+                    lines.forEach(line => {
+                        let currentLine = '';
+                        const words = line.split(' ');
+                        
+                        for (const word of words) {
+                            const testLine = currentLine + word + ' ';
+                            const metrics = ctx.measureText(testLine);
+                            
+                            // Check if adding the word exceeds the inferred width
+                            if (metrics.width > effectiveWidth && currentLine.length > 0) {
+                                // Draw current accumulated line and start new line
+                                ctx.fillText(currentLine.trim(), startXPx, yOffset);
+                                yOffset += lineHeight;
+                                currentLine = word + ' ';
+                            } else {
+                                // Continue adding to current line
+                                currentLine = testLine;
+                            }
+                        }
+                        
+                        // Draw the last line segment
+                        if (currentLine.trim().length > 0) {
+                            ctx.fillText(currentLine.trim(), startXPx, yOffset);
+                            yOffset += lineHeight;
+                        }
+                    });
+
+                } else {
+                    // --- SINGLE-LINE (Name, City, Phone) ---
+                    let adjustedFontSize = baseFontSize;
+                    let textMetrics = ctx.measureText(value);
+                    let currentWidth = textMetrics.width;
+
+                    // Adaptive Scaling: Reduce font size until text fits horizontally
+                    if (currentWidth > effectiveWidth) {
+                        const scaleFactor = effectiveWidth / currentWidth;
+                        // **CRITICAL FIX**: Use 98% of calculated size for margin and containment.
+                        adjustedFontSize = baseFontSize * scaleFactor * 0.98; 
+                        adjustedFontSize = Math.max(adjustedFontSize, 12); // Minimum readable font size
+                    }
+                    
+                    ctx.font = `bold ${adjustedFontSize}px Arial`;
+                    
+                    // Vertical Centering: Forces the text to the vertical center of the box.
+                    // Final Y = Y_top + (Box_Height / 2) + Baseline_Correction
+                    // **CRITICAL FIX**: Use 0.20 factor for a clean, contained baseline position.
+                    const verticalCenterOffset = adjustedFontSize * 0.20; 
+                    const finalY = yPx + (heightPx / 2) + verticalCenterOffset;
+                    
+                    // Horizontal Positioning
+                    ctx.fillText(value, startXPx, finalY);
+                }
+            });
+
+            // 5. Convert the canvas content back to an image URL and generate PDF
+            const imgData = canvas.toDataURL('image/png');
+            const { jsPDF } = window.jspdf;
+            
+            const pdf = new jsPDF('p', 'mm', 'a4');
+            const imgWidth = 210; // A4 width in mm
+            const imgHeight = canvas.height * imgWidth / canvas.width;
+
+            pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
+
+            pdf.save('filled_form_in_original_format.pdf');
+            
+            setStatus("PDF generated in original form format!", false);
+        }
+        window.generatePdf = generatePdf; // Expose globally
+
+
+        // --- REMAINING HELPER FUNCTIONS ---
+        function setStatus(message, isError = false) {
+            statusMessage.textContent = message;
+            statusMessage.className = `text-sm font-medium mt-4 text-center ${isError ? 'text-red-400' : 'text-green-400'}`;
+            setTimeout(() => {
+                if (!isError) {
+                    statusMessage.textContent = '';
+                }
+            }, 8000);
+        }
+
+        async function fetchWithRetry(url, options, maxRetries = 5) {
+            for (let attempt = 0; attempt < maxRetries; attempt++) {
+                try {
+                    const response = await fetch(url, options);
+                    if (response.status !== 429) { return response; }
+                    const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+                    console.warn(`Rate limit hit. Retrying in ${delay / 1000}s... (Attempt ${attempt + 1})`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                } catch (error) {
+                    console.error("Fetch error, retrying:", error);
+                    const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                }
+            }
+            throw new Error("API request failed after multiple retries.");
+        }
+
+        async function fillForm() {
+            if (!sourceImageBase64 || !targetImageBase64) {
+                setStatus("Please upload BOTH the ID Document and the Blank Form file/URL.", true);
+                return;
+            }
+
+            const targetLanguage = document.getElementById('targetLanguage').value;
+            const dynamicSystemPrompt = baseSystemPrompt(targetLanguage);
+
+
+            fillButton.disabled = true;
+            pdfButton.classList.add('hidden'); 
+            buttonText.textContent = 'Mapping...';
+            loader.classList.remove('hidden');
+            setStatus(`Sending files for mapping and coordinate inference...`);
+            
+            formOutputContainer.innerHTML = ''; 
+            outputMessage.textContent = 'Processing...';
+
+            try {
+                const payload = {
+                    contents: [{
+                        parts: [
+                            { text: `Analyze the files, translate output to ${targetLanguage}, and return structured data.` },
+                            {
+                                inlineData: { mimeType: sourceImageMimeType, data: sourceImageBase64 }
+                            },
+                            {
+                                inlineData: { mimeType: targetImageMimeType, data: targetImageBase64 }
+                            }
+                        ]
+                    }],
+                    systemInstruction: { parts: [{ text: dynamicSystemPrompt }] },
+                    generationConfig: {
+                        responseMimeType: "application/json",
+                        responseSchema: responseSchema
+                    }
+                };
+
+                const response = await fetchWithRetry(apiUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorBody = await response.text();
+                    throw new Error(`Backend returned status ${response.status}: ${errorBody}`);
+                }
+
+                const result = await response.json();
+                    const jsonString = result.candidates?.[0]?.content?.parts?.[0]?.text;
+
+                if (!jsonString) {
+                    throw new Error("AI response was empty or returned no structured data.");
+                }
+
+                console.log("Raw AI Response:", jsonString);
+
+                const parsedData = JSON.parse(jsonString);
+                renderEditableForm(parsedData);
+                setStatus(`Form data extracted and fields generated for editing!`, false);
+
+            } catch (error) {
+                console.error("Mapping Error:", error);
+                outputMessage.textContent = `Error: ${error.message}`;
+                setStatus(`Generation Failed: ${error.message}. Check console for details.`, true);
+            } finally {
+                fillButton.disabled = false;
+                buttonText.textContent = 'Map Data & Fill Form';
+                loader.classList.add('hidden');
+            }
+        }
+
+        // Expose functions to the global scope for use in HTML onclick/onchange attributes
+        window.previewImage = previewImage;
+        window.fillForm = fillForm;
+        window.generatePdf = generatePdf;
+    </script>
+</body>
+</html>
